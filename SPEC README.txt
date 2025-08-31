@@ -20,8 +20,8 @@ Which HEX do I use?
 	- If you have any questions, please reach out on our discord: https://discord.gg/C4HHYccaqk
 
 How do I activate the boost?
-	- We've hijacked the beeper mode in betaflight in order to enable boost without any complicated cli commands
-		- Simply open the modes tab and apply an aux channel and range to the beeper mode
+	- The boost mode has its own dedicated RC mode in betaflight
+		- Simply open the modes tab and apply an aux channel and range to the "BOOST" mode
 	- We also recommend enabling the boost bar in your OSD so you can keep track of your boost usage
 		- Open the OSD tab and enable "Battery usage" and leave the drop down on "Graphical remaining"
 
