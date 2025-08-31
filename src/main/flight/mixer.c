@@ -821,3 +821,13 @@ float mixerGetThrottle(void)
 {
     return mixerThrottle;
 }
+
+void mixerResetRpmLimiter(void)
+{
+    // Reset governor state when arming or battery change
+    mixerRuntime.govenorI = 0.0f;
+    mixerRuntime.govenor_init = false;
+    mixerRuntime.govenorPreviousSmoothedRPM = 0.0f;
+    mixerRuntime.govenorPreviousSmoothedRPMError = 0.0f;
+    mixerRuntime.govenorPreviousRPMLimit = 0.0f;
+}
