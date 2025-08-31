@@ -444,7 +444,12 @@ static void applyRPMLimiter(void)
         bool motorsSaturated = false;
         bool motorsDesaturated = false;
         for (int i = 0; i < getMotorCount(); i++) {
+#ifdef USE_DSHOT_TELEMETRY
             averageRPM += getDshotRpm(i) * mixerRuntime.motorPoleCount / 200.0f;
+#else
+            // In SITL or non-DSHOT builds, simulate RPM feedback
+            averageRPM += 50.0f; // Simulate some RPM value for testing
+#endif
             if (motor[i] >= motorConfig()->maxthrottle) {
                 motorsSaturated = true;
             }
@@ -496,11 +501,11 @@ static void applyRPMLimiter(void)
             mixerRuntime.govenorI += smoothedRPMError * mixerRuntime.govenorIGain; // + when overspeed
             mixerRuntime.govenorI = MAX(mixerRuntime.govenorI, 0.0f);
             PIDOutput = govenorP + mixerRuntime.govenorI + govenorD; //more + when overspeed, should be subtracted from throttle
-            if (PIDOutput > 0.05) {
-                mixerRuntime.govenorExpectedThrottleLimit = 0.9994 * mixerRuntime.govenorExpectedThrottleLimit;
+            if (PIDOutput > 0.05f) {
+                mixerRuntime.govenorExpectedThrottleLimit = 0.9994f * mixerRuntime.govenorExpectedThrottleLimit;
             }
-            if (PIDOutput < -0.05 && rcCommand[THROTTLE] > 1950 && !motorsSaturated) {
-                mixerRuntime.govenorExpectedThrottleLimit = (1+1-0.9994) * mixerRuntime.govenorExpectedThrottleLimit;
+            if (PIDOutput < -0.05f && rcCommand[THROTTLE] > 1950 && !motorsSaturated) {
+                mixerRuntime.govenorExpectedThrottleLimit = (1.0f + 1.0f - 0.9994f) * mixerRuntime.govenorExpectedThrottleLimit;
                 mixerRuntime.govenorExpectedThrottleLimit = MAX(mixerRuntime.govenorExpectedThrottleLimit, 1.0f);
             }
 

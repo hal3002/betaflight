@@ -360,7 +360,7 @@ mixerRuntime.afterburnerTankPercent = 100.0f;
 mixerRuntime.afterburnerInitiated = false;
 mixerRuntime.govenorPreviousSmoothedRPMError = 0;
 mixerRuntime.govenorDelayK = mixerRuntime.govenorKFactor * pidGetDT() / 20.0f;
-mixerRuntime.govenorLearningThrottleK = 0.5 / (pidGetPidFrequency() * mixerConfig()->govenorThrottleLimitLearningTimeMS / 1000); // 0.5 = value ^ (4000 * time)       0.99^(4000*(20/1000))
+mixerRuntime.govenorLearningThrottleK = 0.5f / (pidGetPidFrequency() * mixerConfig()->govenorThrottleLimitLearningTimeMS / 1000.0f); // 0.5 = value ^ (4000 * time)       0.99^(4000*(20/1000))
 mixerRuntime.govenor_init = false;
 
 #if defined(USE_BATTERY_VOLTAGE_SAG_COMPENSATION)
