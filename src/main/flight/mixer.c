@@ -221,7 +221,7 @@ static void calculateThrottleAndCurrentMotorEndpoints(timeUs_t currentTimeUs)
 #ifdef USE_DYN_IDLE
         if (mixerRuntime.dynIdleMinRps > 0.0f) {
             const float maxIncrease = isAirmodeActivated() ? mixerRuntime.dynIdleMaxIncrease : 0.05f;
-            float minRps = getMinMotorFrequency();
+            float minRps = getMinMotorFrequencyHz();
             DEBUG_SET(DEBUG_DYN_IDLE, 3, lrintf(minRps * 10.0f));
             float rpsError = mixerRuntime.dynIdleMinRps - minRps;
             // PT1 type lowpass delay and smoothing for D
@@ -444,7 +444,7 @@ static void applyRPMLimiter(void)
         bool motorsSaturated = false;
         bool motorsDesaturated = false;
         for (int i = 0; i < getMotorCount(); i++) {
-            averageRPM += (float)getDshotTelemetry(i);
+            averageRPM += getDshotRpm(i) * mixerRuntime.motorPoleCount / 200.0f;
             if (motor[i] >= motorConfig()->maxthrottle) {
                 motorsSaturated = true;
             }
