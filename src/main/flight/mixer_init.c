@@ -27,8 +27,6 @@
 #include "build/build_config.h"
 #include "build/debug.h"
 
-#include "common/maths.h"
-
 #include "config/config.h"
 #include "config/feature.h"
 
@@ -37,7 +35,6 @@
 #include "fc/controlrate_profile.h"
 #include "fc/runtime_config.h"
 
-#include "mixer.h"
 #include "flight/mixer_tricopter.h"
 #include "flight/pid.h"
 
@@ -47,23 +44,30 @@
 
 #include "mixer_init.h"
 
-PG_REGISTER_WITH_RESET_FN(mixerConfig_t, mixerConfig, PG_MIXER_CONFIG, 1);
+PG_REGISTER_WITH_RESET_TEMPLATE(mixerConfig_t, mixerConfig, PG_MIXER_CONFIG, 0);
 
-void pgResetFn_mixerConfig(mixerConfig_t *mixerConfig)
-{
-    mixerConfig->mixerMode = DEFAULT_MIXER;
-    mixerConfig->yaw_motors_reversed = false;
-    mixerConfig->crashflip_motor_percent = 0;
-    mixerConfig->crashflip_expo = 35;
-    mixerConfig->mixer_type = MIXER_LEGACY;
-#ifdef USE_RPM_LIMIT
-    mixerConfig->rpm_limit = false;
-    mixerConfig->rpm_limit_p = 25;
-    mixerConfig->rpm_limit_i = 10;
-    mixerConfig->rpm_limit_d = 8;
-    mixerConfig->rpm_limit_value = 18000;
-#endif
-}
+PG_RESET_TEMPLATE(mixerConfig_t, mixerConfig,
+    .mixerMode = DEFAULT_MIXER,
+    .yaw_motors_reversed = false,
+    .crashflip_motor_percent = 0,
+    .crashflip_expo = 0,
+    .govenor = true,
+    .govenor_p = 20.0f,
+    .govenor_i = 15.0f,
+    .govenor_d = 10.0f,
+    .govenor_rpm_linearization = true,
+    .govenor_idle_rpm = 17,
+    .govenor_acceleration_limit = 60,
+    .govenor_deceleration_limit = 60,
+    .govenor_k_factor = 1000,
+    .govenor_rpm_limit = 130.0f,
+    .govenor_rpm_afterburner = 16,
+    .govenor_rpm_afterburner_duration = 5,
+    .govenor_rpm_afterburner_reset = false,
+    .govenor_rpm_afterburner_hold_to_use = false,
+    .govenor_rpm_afterburner_tank_count = 3,
+    .mixer_type = MIXER_LEGACY,
+);
 
 PG_REGISTER_ARRAY(motorMixer_t, MAX_SUPPORTED_MOTORS, customMotorMixer, PG_MOTOR_MIXER, 0);
 
@@ -163,17 +167,6 @@ static const motorMixer_t mixerOctoX8[] = {
     { 1.0f,  1.0f, -1.0f,  1.0f },          // UNDER_FRONT_L
 };
 
-static const motorMixer_t mixerOctoX8P[] = {
-    { 1.0f,  0.0f,  1.0f, -1.0f },          // REAR
-    { 1.0f, -1.0f,  0.0f,  1.0f },          // RIGHT
-    { 1.0f,  1.0f,  0.0f,  1.0f },          // LEFT
-    { 1.0f,  0.0f, -1.0f, -1.0f },          // FRONT
-    { 1.0f,  0.0f,  1.0f,  1.0f },          // UNDER_REAR
-    { 1.0f, -1.0f,  0.0f, -1.0f },          // UNDER_RIGHT
-    { 1.0f,  1.0f,  0.0f, -1.0f },          // UNDER_LEFT
-    { 1.0f,  0.0f, -1.0f,  1.0f },          // UNDER_FRONT
-};
-
 static const motorMixer_t mixerOctoFlatP[] = {
     { 1.0f,  0.707107f, -0.707107f,  1.0f },    // FRONT_L
     { 1.0f, -0.707107f, -0.707107f,  1.0f },    // FRONT_R
@@ -197,7 +190,6 @@ static const motorMixer_t mixerOctoFlatX[] = {
 };
 #else
 #define mixerOctoX8 NULL
-#define mixerOctoX8P NULL
 #define mixerOctoFlatP NULL
 #define mixerOctoFlatX NULL
 #endif
@@ -267,8 +259,7 @@ const mixer_t mixers[] = {
     { 0, false, NULL },                // MIXER_CUSTOM
     { 2, true,  NULL },                // MIXER_CUSTOM_AIRPLANE
     { 3, true,  NULL },                // MIXER_CUSTOM_TRI
-    { 4, false, mixerQuadX1234 },      // MIXER_QUADX_1234
-    { 8, false, mixerOctoX8P },        // MIXER_OCTOX8P
+    { 4, false, mixerQuadX1234 },
 };
 #endif // !USE_QUAD_MIXER_ONLY
 
@@ -288,21 +279,13 @@ bool areMotorsRunning(void)
         for (int i = 0; i < mixerRuntime.motorCount; i++) {
             if (motor_disarmed[i] != mixerRuntime.disarmMotorOutput) {
                 motorsRunning = true;
+
                 break;
             }
         }
     }
-    return motorsRunning;
-}
 
-bool areMotorsSaturated(void)
-{
-    for (int i = 0; i < getMotorCount(); i++) {
-        if (motor[i] >= motorConfig()->maxthrottle) {
-            return true;
-        }
-    }
-    return false;
+    return motorsRunning;
 }
 
 #ifdef USE_SERVOS
@@ -328,7 +311,7 @@ void initEscEndpoints(void)
 void mixerInitProfile(void)
 {
 #ifdef USE_DYN_IDLE
-    if (useDshotTelemetry) {
+    if (motorConfigMutable()->dev.useDshotTelemetry) {
         mixerRuntime.dynIdleMinRps = currentPidProfile->dyn_idle_min_rpm * 100.0f / 60.0f;
     } else {
         mixerRuntime.dynIdleMinRps = 0.0f;
@@ -337,16 +320,52 @@ void mixerInitProfile(void)
     mixerRuntime.dynIdleIGain = currentPidProfile->dyn_idle_i_gain * 0.01f * pidGetDT();
     mixerRuntime.dynIdleDGain = currentPidProfile->dyn_idle_d_gain * 0.0000003f * pidGetPidFrequency();
     mixerRuntime.dynIdleMaxIncrease = currentPidProfile->dyn_idle_max_increase * 0.001f;
-    mixerRuntime.dynIdleStartIncrease = currentPidProfile->dyn_idle_start_increase * 0.001f;
     mixerRuntime.minRpsDelayK = 800 * pidGetDT() / 20.0f; //approx 20ms D delay, arbitrarily suits many motors
     if (!mixerRuntime.feature3dEnabled && mixerRuntime.dynIdleMinRps) {
         mixerRuntime.motorOutputLow = DSHOT_MIN_THROTTLE; // Override value set by initEscEndpoints to allow zero motor drive
     }
 #endif
+mixerRuntime.govenorExpectedThrottleLimit = 1.0f;
+
+//Street League spec settings
+
+//Locked rpm settings
+mixerRuntime.govenorEnabled = true;
+mixerRuntime.rpmLinearization = true;
+mixerRuntime.motorPoleCount = 14;
+mixerRuntime.afterburnerReset = false;
+mixerRuntime.afterburnerHoldToBoost = false;
+
+//Unlocked rpm settings
+// mixerRuntime.govenorEnabled = mixerConfig()->govenor;
+// mixerRuntime.rpmLinearization = mixerConfig()->govenor_rpm_linearization;
+// mixerRuntime.motorPoleCount = motorConfig()->motorPoleCount;
+// mixerRuntime.afterburnerReset = mixerConfig()->govenor_rpm_afterburner_reset;
+// mixerRuntime.afterburnerHoldToBoost = mixerConfig()->govenor_rpm_afterburner_hold_to_use;
+
+
+mixerRuntime.govenorPGain = mixerConfig()->govenor_p * 0.0000015f;
+mixerRuntime.govenorIGain = mixerConfig()->govenor_i * 0.0001f * pidGetDT();
+mixerRuntime.govenorDGain = mixerConfig()->govenor_d * 0.00000003f * pidGetPidFrequency();
+mixerRuntime.govenorAccelerationLimit = mixerConfig()->govenor_acceleration_limit * 1000.0f * pidGetDT();
+mixerRuntime.govenorDecelerationLimit = mixerConfig()->govenor_deceleration_limit * 1000.0f * pidGetDT();
+mixerRuntime.govenorKFactor = mixerConfig()->govenor_k_factor;
+mixerRuntime.afterburnerRPM = mixerConfig()->govenor_rpm_afterburner;
+mixerRuntime.afterburnerDuration = mixerConfig()->govenor_rpm_afterburner_duration;
+mixerRuntime.afterburnerTanksRemaining = mixerConfig()->govenor_rpm_afterburner_tank_count;
+mixerRuntime.RPMLimit = mixerConfig()->govenor_rpm_limit;
+
+mixerRuntime.govenorI = 0;
+mixerRuntime.afterburnerTankPercent = 100.0f;
+mixerRuntime.afterburnerInitiated = false;
+mixerRuntime.govenorPreviousSmoothedRPMError = 0;
+mixerRuntime.govenorDelayK = mixerRuntime.govenorKFactor * pidGetDT() / 20.0f;
+mixerRuntime.govenorLearningThrottleK = 0.5 / (pidGetPidFrequency() * mixerConfig()->govenorThrottleLimitLearningTimeMS / 1000); // 0.5 = value ^ (4000 * time)       0.99^(4000*(20/1000))
+mixerRuntime.govenor_init = false;
 
 #if defined(USE_BATTERY_VOLTAGE_SAG_COMPENSATION)
     mixerRuntime.vbatSagCompensationFactor = 0.0f;
-    if (currentPidProfile->vbat_sag_compensation > 0 && !RPM_LIMIT_ACTIVE) {
+    if (currentPidProfile->vbat_sag_compensation > 0) {
         //TODO: Make this voltage user configurable
         mixerRuntime.vbatFull = CELL_VOLTAGE_FULL_CV;
         mixerRuntime.vbatRangeToCompensate = mixerRuntime.vbatFull - batteryConfig()->vbatwarningcellvoltage;
@@ -355,32 +374,7 @@ void mixerInitProfile(void)
         }
     }
 #endif
-
-#ifdef USE_RPM_LIMIT
-    mixerRuntime.rpmLimiterRpmLimit = mixerConfig()->rpm_limit_value;
-    mixerRuntime.rpmLimiterPGain = mixerConfig()->rpm_limit_p * 15e-6f;
-    mixerRuntime.rpmLimiterIGain = mixerConfig()->rpm_limit_i * 1e-3f * pidGetDT();
-    mixerRuntime.rpmLimiterDGain = mixerConfig()->rpm_limit_d * 3e-7f * pidGetPidFrequency();
-    mixerRuntime.rpmLimiterI = 0.0;
-    pt1FilterInit(&mixerRuntime.rpmLimiterAverageRpmFilter, pt1FilterGain(6.0f, pidGetDT()));
-    pt1FilterInit(&mixerRuntime.rpmLimiterThrottleScaleOffsetFilter, pt1FilterGain(2.0f, pidGetDT()));
-    mixerResetRpmLimiter();
-#endif
-
-    mixerRuntime.ezLandingThreshold = 2.0f * currentPidProfile->ez_landing_threshold / 100.0f;
-    mixerRuntime.ezLandingLimit = currentPidProfile->ez_landing_limit / 100.0f;
-    mixerRuntime.ezLandingSpeed = 2.0f * currentPidProfile->ez_landing_speed / 10.0f;
 }
-
-#ifdef USE_RPM_LIMIT
-void mixerResetRpmLimiter(void)
-{
-    mixerRuntime.rpmLimiterI = 0.0;
-    mixerRuntime.rpmLimiterThrottleScale = constrainf(mixerRuntime.rpmLimiterRpmLimit / motorEstimateMaxRpm(), 0.0f, 1.0f);
-    mixerRuntime.rpmLimiterInitialThrottleScale = mixerRuntime.rpmLimiterThrottleScale;
-}
-
-#endif // USE_RPM_LIMIT
 
 #ifdef USE_LAUNCH_CONTROL
 // Create a custom mixer for launch control based on the current settings
@@ -404,7 +398,7 @@ void loadLaunchControlMixer(void)
 static void mixerConfigureOutput(void)
 {
     mixerRuntime.motorCount = 0;
-
+    
     if (currentMixerMode == MIXER_CUSTOM || currentMixerMode == MIXER_CUSTOM_TRI || currentMixerMode == MIXER_CUSTOM_AIRPLANE) {
         // load custom mixer into currentMixer
         for (int i = 0; i < MAX_SUPPORTED_MOTORS; i++) {
@@ -468,6 +462,7 @@ void mixerInit(mixerMode_e mixerMode)
     mixerRuntime.feature3dEnabled = featureIsEnabled(FEATURE_3D);
 
     initEscEndpoints();
+
 #ifdef USE_SERVOS
     if (mixerIsTricopter()) {
         mixerTricopterInit();
@@ -503,9 +498,11 @@ bool mixerModeIsFixedWing(mixerMode_e mixerMode)
     case MIXER_AIRPLANE:
     case MIXER_CUSTOM_AIRPLANE:
         return true;
+
         break;
     default:
         return false;
+
         break;
     }
 }
